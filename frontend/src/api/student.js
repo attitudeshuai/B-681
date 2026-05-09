@@ -46,3 +46,17 @@ export function deleteStudent(id) {
     method: 'delete'
   })
 }
+
+// 批量导入学生
+export function importStudents(file) {
+  const formData = new FormData()
+  formData.append('file', file)
+  return request({
+    url: '/students/import',
+    method: 'post',
+    data: formData,
+    headers: {
+      'Content-Type': 'multipart/form-data'
+    }
+  })
+}
