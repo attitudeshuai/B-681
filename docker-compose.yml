@@ -1,0 +1,70 @@
+version: '3.8'
+
+services:
+  # MySQL数据库
+  db:
+    image: mysql:8.0
+    container_name: student-mysql
+    restart: always
+    environment:
+      MYSQL_ROOT_PASSWORD: root123456
+      MYSQL_DATABASE: student_db
+      TZ: Asia/Shanghai
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+    networks:
+      - student-network
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-proot123456"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Spring Boot后端
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: student-backend
+    restart: always
+    ports:
+      - "8080:8080"
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:mysql://db:3306/student_db?useUnicode=true&characterEncoding=utf8&useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true
+      SPRING_DATASOURCE_USERNAME: root
+      SPRING_DATASOURCE_PASSWORD: root123456
+      TZ: Asia/Shanghai
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - student-network
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8080/api/students"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Vue前端
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: student-frontend
+    restart: always
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
+    networks:
+      - student-network
+
+volumes:
+  mysql_data:
+    driver: local
+
+networks:
+  student-network:
+    driver: bridge
