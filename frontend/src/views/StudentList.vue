@@ -20,6 +20,9 @@
       <el-button type="primary" icon="el-icon-plus" @click="handleAdd" class="add-btn">
         添加学生
       </el-button>
+      <el-button type="success" icon="el-icon-upload2" @click="importDialogVisible = true" class="import-btn">
+        批量导入
+      </el-button>
     </div>
 
     <!-- 学生表格 -->
@@ -111,11 +114,86 @@
         </el-button>
       </div>
     </el-dialog>
+
+    <!-- 批量导入对话框 -->
+    <el-dialog
+      title="批量导入学生"
+      :visible.sync="importDialogVisible"
+      width="520px"
+      :close-on-click-modal="false"
+      @close="resetImport"
+    >
+      <div class="import-tips">
+        <p>请上传 .xlsx 格式的 Excel 文件，表头需包含以下列：</p>
+        <p><strong>姓名、学号、性别、班级</strong></p>
+      </div>
+      <el-upload
+        ref="importUpload"
+        action=""
+        :auto-upload="false"
+        :limit="1"
+        accept=".xlsx"
+        :on-change="handleImportFileChange"
+        :on-remove="handleImportFileRemove"
+        :file-list="importFileList"
+        drag
+      >
+        <i class="el-icon-upload"></i>
+        <div class="el-upload__text">将文件拖到此处，或<em>点击上传</em></div>
+        <div class="el-upload__tip" slot="tip">仅支持 .xlsx 文件</div>
+      </el-upload>
+      <div slot="footer" class="dialog-footer">
+        <el-button @click="importDialogVisible = false">取消</el-button>
+        <el-button type="primary" @click="handleImportSubmit" :loading="importing" :disabled="!importFile">
+          开始导入
+        </el-button>
+      </div>
+    </el-dialog>
+
+    <!-- 导入结果对话框 -->
+    <el-dialog
+      title="导入结果"
+      :visible.sync="importResultVisible"
+      width="600px"
+    >
+      <div v-if="importResult" class="import-result">
+        <el-row :gutter="20" class="result-summary">
+          <el-col :span="8">
+            <div class="summary-item">
+              <div class="summary-value">{{ importResult.totalRows }}</div>
+              <div class="summary-label">总行数</div>
+            </div>
+          </el-col>
+          <el-col :span="8">
+            <div class="summary-item success">
+              <div class="summary-value">{{ importResult.successCount }}</div>
+              <div class="summary-label">成功</div>
+            </div>
+          </el-col>
+          <el-col :span="8">
+            <div class="summary-item fail">
+              <div class="summary-value">{{ importResult.failCount }}</div>
+              <div class="summary-label">失败</div>
+            </div>
+          </el-col>
+        </el-row>
+        <div v-if="importResult.failDetails && importResult.failDetails.length > 0" class="fail-details">
+          <h4>失败详情</h4>
+          <el-table :data="importResult.failDetails" border size="small" max-height="300">
+            <el-table-column prop="rowIndex" label="行号" width="80" align="center" />
+            <el-table-column prop="reason" label="失败原因" />
+          </el-table>
+        </div>
+      </div>
+      <div slot="footer" class="dialog-footer">
+        <el-button type="primary" @click="closeImportResult">确定</el-button>
+      </div>
+    </el-dialog>
   </div>
 </template>
 
 <script>
-import { getStudents, createStudent, updateStudent, deleteStudent } from '../api/student'
+import { getStudents, createStudent, updateStudent, deleteStudent, importStudents } from '../api/student'
 
 export default {
   name: 'StudentList',
@@ -151,7 +229,13 @@ export default {
         className: [
           { required: true, message: '请输入班级', trigger: 'blur' }
         ]
-      }
+      },
+      importDialogVisible: false,
+      importing: false,
+      importFile: null,
+      importFileList: [],
+      importResultVisible: false,
+      importResult: null
     }
   },
   
@@ -272,6 +356,50 @@ export default {
         this.$refs.studentForm.resetFields()
       }
     },
+
+    handleImportFileChange(file) {
+      this.importFile = file.raw
+      this.importFileList = [file]
+    },
+
+    handleImportFileRemove() {
+      this.importFile = null
+      this.importFileList = []
+    },
+
+    resetImport() {
+      this.importFile = null
+      this.importFileList = []
+    },
+
+    async handleImportSubmit() {
+      if (!this.importFile) {
+        this.$message.warning('请先选择文件')
+        return
+      }
+
+      this.importing = true
+      try {
+        const response = await importStudents(this.importFile)
+        if (response.success) {
+          this.importResult = response.data
+          this.importDialogVisible = false
+          this.importResultVisible = true
+          this.fetchStudents()
+        } else {
+          this.$message.error(response.message || '导入失败')
+        }
+      } catch (error) {
+        console.error('导入失败:', error)
+      } finally {
+        this.importing = false
+      }
+    },
+
+    closeImportResult() {
+      this.importResultVisible = false
+      this.importResult = null
+    },
     
     // 格式化日期
     formatDate(dateString) {
@@ -328,6 +456,66 @@ export default {
 .add-btn {
   border-radius: 10px;
   padding: 12px 30px;
+}
+
+.import-btn {
+  border-radius: 10px;
+  padding: 12px 30px;
+}
+
+.import-tips {
+  background: #f4f4f5;
+  border-radius: 8px;
+  padding: 12px 16px;
+  margin-bottom: 16px;
+  font-size: 14px;
+  color: #606266;
+  line-height: 1.8;
+}
+
+.import-result .result-summary {
+  text-align: center;
+  margin-bottom: 20px;
+}
+
+.summary-item {
+  background: #f5f7fa;
+  border-radius: 8px;
+  padding: 16px 0;
+}
+
+.summary-item.success {
+  background: #f0f9eb;
+}
+
+.summary-item.fail {
+  background: #fef0f0;
+}
+
+.summary-value {
+  font-size: 28px;
+  font-weight: 700;
+  color: #303133;
+}
+
+.summary-item.success .summary-value {
+  color: #67c23a;
+}
+
+.summary-item.fail .summary-value {
+  color: #f56c6c;
+}
+
+.summary-label {
+  font-size: 14px;
+  color: #909399;
+  margin-top: 4px;
+}
+
+.fail-details h4 {
+  margin: 0 0 10px;
+  font-size: 14px;
+  color: #303133;
 }
 
 /* 表格卡片 */

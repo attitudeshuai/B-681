@@ -1,10 +1,5 @@
 import request from '../utils/request'
 
-/**
- * 学生API接口封装
- */
-
-// 查询所有学生
 export function getStudents(params) {
   return request({
     url: '/students',
@@ -13,7 +8,6 @@ export function getStudents(params) {
   })
 }
 
-// 根据ID查询学生
 export function getStudent(id) {
   return request({
     url: `/students/${id}`,
@@ -21,7 +15,6 @@ export function getStudent(id) {
   })
 }
 
-// 创建学生
 export function createStudent(data) {
   return request({
     url: '/students',
@@ -30,7 +23,6 @@ export function createStudent(data) {
   })
 }
 
-// 更新学生
 export function updateStudent(id, data) {
   return request({
     url: `/students/${id}`,
@@ -39,10 +31,21 @@ export function updateStudent(id, data) {
   })
 }
 
-// 删除学生
 export function deleteStudent(id) {
   return request({
     url: `/students/${id}`,
     method: 'delete'
+  })
+}
+
+export function importStudents(file) {
+  const formData = new FormData()
+  formData.append('file', file)
+  return request({
+    url: '/students/import',
+    method: 'post',
+    data: formData,
+    headers: { 'Content-Type': 'multipart/form-data' },
+    timeout: 60000
   })
 }

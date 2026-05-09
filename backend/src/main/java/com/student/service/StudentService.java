@@ -1,13 +1,20 @@
 package com.student.service;
 
+import com.student.dto.ImportResult;
 import com.student.entity.Student;
 import com.student.repository.StudentRepository;
+import org.apache.poi.ss.usermodel.*;
+import org.apache.poi.xssf.usermodel.XSSFWorkbook;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.multipart.MultipartFile;
 
+import java.io.IOException;
+import java.io.InputStream;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 
@@ -101,5 +108,107 @@ public class StudentService {
         }
         
         studentRepository.deleteById(id);
+    }
+
+    @Transactional
+    public ImportResult importStudents(MultipartFile file) throws IOException {
+        ImportResult result = new ImportResult();
+
+        try (InputStream is = file.getInputStream();
+             Workbook workbook = new XSSFWorkbook(is)) {
+
+            Sheet sheet = workbook.getSheetAt(0);
+            int lastRow = sheet.getLastRowNum();
+
+            if (lastRow < 1) {
+                return result;
+            }
+
+            result.setTotalRows(lastRow);
+
+            for (int i = 1; i <= lastRow; i++) {
+                Row row = sheet.getRow(i);
+                if (row == null) {
+                    result.getFailDetails().add(new ImportResult.FailDetail(i + 1, "空行"));
+                    result.setFailCount(result.getFailCount() + 1);
+                    continue;
+                }
+
+                try {
+                    String name = getCellStringValue(row.getCell(0));
+                    String studentId = getCellStringValue(row.getCell(1));
+                    String gender = getCellStringValue(row.getCell(2));
+                    String className = getCellStringValue(row.getCell(3));
+
+                    if (name == null || name.trim().isEmpty()) {
+                        result.getFailDetails().add(new ImportResult.FailDetail(i + 1, "姓名不能为空"));
+                        result.setFailCount(result.getFailCount() + 1);
+                        continue;
+                    }
+                    if (studentId == null || studentId.trim().isEmpty()) {
+                        result.getFailDetails().add(new ImportResult.FailDetail(i + 1, "学号不能为空"));
+                        result.setFailCount(result.getFailCount() + 1);
+                        continue;
+                    }
+                    if (gender == null || gender.trim().isEmpty()) {
+                        result.getFailDetails().add(new ImportResult.FailDetail(i + 1, "性别不能为空"));
+                        result.setFailCount(result.getFailCount() + 1);
+                        continue;
+                    }
+                    if (className == null || className.trim().isEmpty()) {
+                        result.getFailDetails().add(new ImportResult.FailDetail(i + 1, "班级不能为空"));
+                        result.setFailCount(result.getFailCount() + 1);
+                        continue;
+                    }
+
+                    Optional<Student> existing = studentRepository.findByStudentId(studentId.trim());
+                    if (existing.isPresent()) {
+                        result.getFailDetails().add(new ImportResult.FailDetail(i + 1, "学号已存在: " + studentId));
+                        result.setFailCount(result.getFailCount() + 1);
+                        continue;
+                    }
+
+                    Student student = new Student();
+                    student.setName(name.trim());
+                    student.setStudentId(studentId.trim());
+                    student.setGender(gender.trim());
+                    student.setClassName(className.trim());
+                    studentRepository.save(student);
+
+                    result.setSuccessCount(result.getSuccessCount() + 1);
+                } catch (Exception e) {
+                    logger.error("导入第{}行失败", i + 1, e);
+                    result.getFailDetails().add(new ImportResult.FailDetail(i + 1, e.getMessage()));
+                    result.setFailCount(result.getFailCount() + 1);
+                }
+            }
+        }
+
+        return result;
+    }
+
+    private String getCellStringValue(Cell cell) {
+        if (cell == null) {
+            return null;
+        }
+        switch (cell.getCellType()) {
+            case STRING:
+                return cell.getStringCellValue();
+            case NUMERIC:
+                if (DateUtil.isCellDateFormatted(cell)) {
+                    return cell.getDateCellValue().toString();
+                }
+                double numVal = cell.getNumericCellValue();
+                if (numVal == Math.floor(numVal) && !Double.isInfinite(numVal)) {
+                    return String.valueOf((long) numVal);
+                }
+                return String.valueOf(numVal);
+            case BOOLEAN:
+                return String.valueOf(cell.getBooleanCellValue());
+            case FORMULA:
+                return cell.getCellFormula();
+            default:
+                return null;
+        }
     }
 }
