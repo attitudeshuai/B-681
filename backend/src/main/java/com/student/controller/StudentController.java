@@ -1,5 +1,6 @@
 package com.student.controller;
 
+import com.student.dto.ImportResult;
 import com.student.entity.Student;
 import com.student.service.StudentService;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -7,6 +8,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.multipart.MultipartFile;
 
 import java.util.HashMap;
 import java.util.List;
@@ -126,6 +128,45 @@ public class StudentController {
             response.put("success", false);
             response.put("message", e.getMessage());
             return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(response);
+        }
+    }
+    
+    /**
+     * 批量导入学生
+     */
+    @PostMapping("/import")
+    public ResponseEntity<Map<String, Object>> importStudents(
+            @RequestParam("file") MultipartFile file) {
+        
+        Map<String, Object> response = new HashMap<>();
+        
+        if (file.isEmpty()) {
+            response.put("success", false);
+            response.put("message", "请选择要上传的文件");
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(response);
+        }
+        
+        String filename = file.getOriginalFilename();
+        if (filename == null || !filename.endsWith(".xlsx")) {
+            response.put("success", false);
+            response.put("message", "只支持 .xlsx 格式的 Excel 文件");
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(response);
+        }
+        
+        try {
+            ImportResult result = studentService.importStudents(file);
+            response.put("success", true);
+            response.put("message", "导入完成");
+            response.put("data", result);
+            return ResponseEntity.ok(response);
+        } catch (IllegalArgumentException e) {
+            response.put("success", false);
+            response.put("message", e.getMessage());
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(response);
+        } catch (Exception e) {
+            response.put("success", false);
+            response.put("message", "导入失败: " + e.getMessage());
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(response);
         }
     }
 }
