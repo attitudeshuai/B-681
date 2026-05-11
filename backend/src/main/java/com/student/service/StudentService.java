@@ -1,15 +1,24 @@
 package com.student.service;
 
+import com.student.dto.ImportResult;
 import com.student.entity.Student;
 import com.student.repository.StudentRepository;
+import org.apache.poi.ss.usermodel.*;
+import org.apache.poi.xssf.usermodel.XSSFWorkbook;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.multipart.MultipartFile;
 
+import java.io.IOException;
+import java.io.InputStream;
+import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 
 /**
  * 学生业务逻辑层
@@ -101,5 +110,115 @@ public class StudentService {
         }
         
         studentRepository.deleteById(id);
+    }
+    
+    /**
+     * 批量导入学生
+     */
+    @Transactional
+    public ImportResult importStudents(MultipartFile file) {
+        logger.info("开始批量导入学生");
+        ImportResult result = new ImportResult();
+        List<Student> studentsToSave = new ArrayList<>();
+        Set<String> studentIdsInFile = new HashSet<>();
+        
+        try (InputStream is = file.getInputStream();
+             Workbook workbook = new XSSFWorkbook(is)) {
+            
+            Sheet sheet = workbook.getSheetAt(0);
+            int totalRows = sheet.getLastRowNum();
+            result.setTotalRows(totalRows);
+            
+            if (totalRows < 1) {
+                logger.warn("Excel 文件为空或只有表头");
+                return result;
+            }
+            
+            for (int i = 1; i <= totalRows; i++) {
+                Row row = sheet.getRow(i);
+                if (row == null) {
+                    result.addFailRecord(i + 1, "行为空");
+                    continue;
+                }
+                
+                try {
+                    String name = getCellValueAsString(row.getCell(0));
+                    String studentId = getCellValueAsString(row.getCell(1));
+                    String gender = getCellValueAsString(row.getCell(2));
+                    String className = getCellValueAsString(row.getCell(3));
+                    
+                    if (name == null || name.trim().isEmpty()) {
+                        result.addFailRecord(i + 1, "姓名不能为空");
+                        continue;
+                    }
+                    if (studentId == null || studentId.trim().isEmpty()) {
+                        result.addFailRecord(i + 1, "学号不能为空");
+                        continue;
+                    }
+                    if (gender == null || gender.trim().isEmpty()) {
+                        result.addFailRecord(i + 1, "性别不能为空");
+                        continue;
+                    }
+                    if (className == null || className.trim().isEmpty()) {
+                        result.addFailRecord(i + 1, "班级不能为空");
+                        continue;
+                    }
+                    
+                    if (studentIdsInFile.contains(studentId)) {
+                        result.addFailRecord(i + 1, "学号在文件中重复: " + studentId);
+                        continue;
+                    }
+                    
+                    Optional<Student> existing = studentRepository.findByStudentId(studentId);
+                    if (existing.isPresent()) {
+                        result.addFailRecord(i + 1, "学号已存在: " + studentId);
+                        continue;
+                    }
+                    
+                    Student student = new Student();
+                    student.setName(name.trim());
+                    student.setStudentId(studentId.trim());
+                    student.setGender(gender.trim());
+                    student.setClassName(className.trim());
+                    
+                    studentsToSave.add(student);
+                    studentIdsInFile.add(studentId);
+                    
+                } catch (Exception e) {
+                    logger.error("解析第 {} 行数据失败: {}", i + 1, e.getMessage());
+                    result.addFailRecord(i + 1, "解析失败: " + e.getMessage());
+                }
+            }
+            
+            if (!studentsToSave.isEmpty()) {
+                studentRepository.saveAll(studentsToSave);
+                result.setSuccessCount(studentsToSave.size());
+                logger.info("批量导入成功，共导入 {} 条数据", studentsToSave.size());
+            }
+            
+        } catch (IOException e) {
+            logger.error("读取 Excel 文件失败", e);
+            throw new IllegalArgumentException("读取 Excel 文件失败: " + e.getMessage());
+        }
+        
+        return result;
+    }
+    
+    private String getCellValueAsString(Cell cell) {
+        if (cell == null) {
+            return "";
+        }
+        switch (cell.getCellType()) {
+            case STRING:
+                return cell.getStringCellValue();
+            case NUMERIC:
+                return String.valueOf((long) cell.getNumericCellValue());
+            case BOOLEAN:
+                return String.valueOf(cell.getBooleanCellValue());
+            case FORMULA:
+                return cell.getCellFormula();
+            default:
+                return "";
+        }
     }
 }

@@ -17,9 +17,24 @@
           <el-button slot="append" icon="el-icon-search" @click="handleSearch">搜索</el-button>
         </el-input>
       </div>
-      <el-button type="primary" icon="el-icon-plus" @click="handleAdd" class="add-btn">
-        添加学生
-      </el-button>
+      <div class="action-buttons">
+        <el-upload
+          class="import-upload"
+          :action="uploadUrl"
+          :show-file-list="false"
+          :before-upload="beforeUpload"
+          :on-success="onUploadSuccess"
+          :on-error="onUploadError"
+          accept=".xlsx"
+        >
+          <el-button type="success" icon="el-icon-upload2" class="import-btn">
+            批量导入
+          </el-button>
+        </el-upload>
+        <el-button type="primary" icon="el-icon-plus" @click="handleAdd" class="add-btn">
+          添加学生
+        </el-button>
+      </div>
     </div>
 
     <!-- 学生表格 -->
@@ -111,11 +126,55 @@
         </el-button>
       </div>
     </el-dialog>
+
+    <!-- 导入结果对话框 -->
+    <el-dialog
+      title="导入结果"
+      :visible.sync="importResultVisible"
+      width="600px"
+      :close-on-click-modal="false"
+    >
+      <div v-if="importResult" class="import-result">
+        <div class="result-summary">
+          <div class="summary-item">
+            <span class="label">总行数：</span>
+            <span class="value">{{ importResult.totalRows }}</span>
+          </div>
+          <div class="summary-item success">
+            <span class="label">成功数：</span>
+            <span class="value">{{ importResult.successCount }}</span>
+          </div>
+          <div class="summary-item fail">
+            <span class="label">失败数：</span>
+            <span class="value">{{ importResult.failCount }}</span>
+          </div>
+        </div>
+        
+        <div v-if="importResult.failRecords && importResult.failRecords.length > 0" class="fail-list">
+          <h4>失败详情</h4>
+          <el-table
+            :data="importResult.failRecords"
+            size="small"
+            border
+            max-height="300"
+          >
+            <el-table-column prop="rowNum" label="行号" width="80" align="center" />
+            <el-table-column prop="reason" label="失败原因" />
+          </el-table>
+        </div>
+      </div>
+      
+      <div slot="footer" class="dialog-footer">
+        <el-button type="primary" @click="closeImportResult">
+          确定
+        </el-button>
+      </div>
+    </el-dialog>
   </div>
 </template>
 
 <script>
-import { getStudents, createStudent, updateStudent, deleteStudent } from '../api/student'
+import { getStudents, createStudent, updateStudent, deleteStudent, importStudents } from '../api/student'
 
 export default {
   name: 'StudentList',
@@ -124,11 +183,15 @@ export default {
     return {
       loading: false,
       submitting: false,
+      importing: false,
       studentList: [],
       searchKeyword: '',
       dialogVisible: false,
       dialogTitle: '添加学生',
       isEdit: false,
+      uploadUrl: '',
+      importResultVisible: false,
+      importResult: null,
       studentForm: {
         id: null,
         name: '',
@@ -284,6 +347,61 @@ export default {
         hour: '2-digit',
         minute: '2-digit'
       })
+    },
+    
+    // 上传前校验
+    beforeUpload(file) {
+      const isXlsx = file.name.endsWith('.xlsx')
+      if (!isXlsx) {
+        this.$message.error('只支持 .xlsx 格式的 Excel 文件')
+        return false
+      }
+      const isLt10M = file.size / 1024 / 1024 < 10
+      if (!isLt10M) {
+        this.$message.error('文件大小不能超过 10MB')
+        return false
+      }
+      this.importing = true
+      this.handleImport(file)
+      return false
+    },
+    
+    // 处理导入
+    async handleImport(file) {
+      try {
+        const response = await importStudents(file)
+        
+        if (response.success) {
+          this.$message.success('导入完成')
+          this.importResult = response.data
+          this.importResultVisible = true
+          this.fetchStudents()
+        } else {
+          this.$message.error(response.message || '导入失败')
+        }
+      } catch (error) {
+        console.error('导入失败:', error)
+        this.$message.error('导入失败，请稍后重试')
+      } finally {
+        this.importing = false
+      }
+    },
+    
+    // 上传成功回调（备用）
+    onUploadSuccess(response) {
+      this.importing = false
+    },
+    
+    // 上传失败回调（备用）
+    onUploadError(error) {
+      this.importing = false
+      this.$message.error('上传失败，请稍后重试')
+    },
+    
+    // 关闭导入结果对话框
+    closeImportResult() {
+      this.importResultVisible = false
+      this.importResult = null
     }
   }
 }
@@ -325,7 +443,13 @@ export default {
   border-radius: 0 10px 10px 0;
 }
 
-.add-btn {
+.action-buttons {
+  display: flex;
+  gap: 10px;
+}
+
+.add-btn,
+.import-btn {
   border-radius: 10px;
   padding: 12px 30px;
 }
@@ -390,5 +514,50 @@ export default {
   .table-card {
     padding: 15px 10px;
   }
+}
+
+/* 导入结果样式 */
+.import-result {
+  padding: 10px 0;
+}
+
+.result-summary {
+  display: flex;
+  justify-content: space-around;
+  padding: 20px;
+  background: #f5f7fa;
+  border-radius: 8px;
+  margin-bottom: 20px;
+}
+
+.summary-item {
+  text-align: center;
+}
+
+.summary-item .label {
+  font-size: 14px;
+  color: #606266;
+  display: block;
+  margin-bottom: 8px;
+}
+
+.summary-item .value {
+  font-size: 24px;
+  font-weight: 600;
+  color: #303133;
+}
+
+.summary-item.success .value {
+  color: #67c23a;
+}
+
+.summary-item.fail .value {
+  color: #f56c6c;
+}
+
+.fail-list h4 {
+  font-size: 14px;
+  color: #303133;
+  margin-bottom: 12px;
 }
 </style>
